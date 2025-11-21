@@ -76,10 +76,12 @@ $rsProducts = mysqli_query($conn, $sqlProducts);
                             <?php echo htmlspecialchars(mb_strimwidth($p['description'], 0, 60, "...")); ?>
                         </p>
 
-                        <a href="cart.php?action=add&id=<?php echo $p['product_id']; ?>" 
-                            class="btn btn-sm btn-danger mt-auto">
+                        <a href="cart.php?action=add&id=<?php echo $p['product_id']; ?>"
+                        class="btn btn-sm btn-danger mt-auto add-to-cart-btn"
+                        data-id="<?php echo $p['product_id']; ?>">
                             Thêm vào giỏ
                         </a>
+
 
                     </div>
                 </div>

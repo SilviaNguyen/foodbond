@@ -2,12 +2,11 @@
 require 'config.php';
 
 $fullname = 'Admin FoodBond';
-$email    = 'admin@foodbond.local'; // email đăng nhập admin
+$email    = 'admin@foodbond.local'; 
 $phone    = '0000000000';
 $address  = 'FoodBond HQ';
-$password_plain = '6h50';         // mật khẩu muốn dùng
+$password_plain = '6h50';         
 
-// Kiểm tra xem đã có admin này chưa
 $sqlCheck = "SELECT user_id FROM users WHERE email = ?";
 $stmt = mysqli_prepare($conn, $sqlCheck);
 mysqli_stmt_bind_param($stmt, "s", $email);
@@ -20,10 +19,10 @@ if (mysqli_stmt_num_rows($stmt) > 0) {
 }
 mysqli_stmt_close($stmt);
 
-// Tạo hash mật khẩu
+
 $hash = password_hash($password_plain, PASSWORD_DEFAULT);
 
-// Insert admin
+
 $sqlInsert = "INSERT INTO users (fullname, email, phone, address, password, role)
               VALUES (?, ?, ?, ?, ?, 'admin')";
 $stmt = mysqli_prepare($conn, $sqlInsert);

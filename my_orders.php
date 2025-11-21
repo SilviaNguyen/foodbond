@@ -10,10 +10,14 @@ if (empty($_SESSION['user_id'])) {
     exit;
 }
 
-// Hàm auto cập nhật trạng thái theo thời gian (giống admin)
 function update_and_get_order_status(array $row, mysqli $conn): array
 {
     if (empty($row['created_at'])) {
+        return $row;
+    }
+
+    // Nếu đã giao / đã huỷ thì giữ nguyên
+    if ($row['status'] === 'delivered' || $row['status'] === 'cancelled') {
         return $row;
     }
 
@@ -36,17 +40,11 @@ function update_and_get_order_status(array $row, mysqli $conn): array
         $newStatus = 'delivered';
     }
 
-    if ($newStatus !== $row['status']) {
-        $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
-        $stmtU = mysqli_prepare($conn, $sqlU);
-        mysqli_stmt_bind_param($stmtU, "si", $newStatus, $row['order_id']);
-        mysqli_stmt_execute($stmtU);
-        mysqli_stmt_close($stmtU);
-        $row['status'] = $newStatus;
-    }
-
+    // CHỈ đổi trong biến $row để hiển thị, KHÔNG UPDATE DB
+    $row['status'] = $newStatus;
     return $row;
 }
+
 
 $userId = (int)$_SESSION['user_id'];
 
@@ -67,13 +65,11 @@ $orders = [];
 $orderIds = [];
 
 while ($row = mysqli_fetch_assoc($rsOrders)) {
-    $row = update_and_get_order_status($row, $conn);
     $orders[$row['order_id']] = $row;
     $orderIds[] = $row['order_id'];
 }
 mysqli_stmt_close($stmt);
 
-// Nếu có đơn thì lấy luôn danh sách món của tất cả các đơn này
 $itemsByOrder = [];
 
 if (!empty($orderIds)) {

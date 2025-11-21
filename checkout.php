@@ -4,9 +4,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require 'config.php';
 
-// Toạ độ cửa hàng (bạn tra đúng rồi điền vào đây)
-$SHOP_LAT = 10.86566425561328;    
-$SHOP_LON = 106.61627746661038;  
+$SHOP_LON = 106.61635256938862;    
+$SHOP_LAT = 10.865558890717343;  
 
 // Nếu chưa đăng nhập -> về login
 if (empty($_SESSION['user_id'])) {
@@ -14,47 +13,53 @@ if (empty($_SESSION['user_id'])) {
     exit;
 }
 
-// Nếu giỏ hàng trống -> về trang chủ
 $cart = $_SESSION['cart'] ?? [];
 if (empty($cart) || !is_array($cart)) {
     header("Location: index.php");
     exit;
 }
 
-// ====== CẤU HÌNH THỜI GIAN ======
+const PREP_BASE_MIN        = 15; 
+const PREP_ITEMS_PER_BATCH = 5;  
+const PREP_PER_BATCH_MIN   = 5;  
+const PREP_MAX_MIN         = 45; 
 
-// Chuẩn bị: 10 phút / món (theo yêu cầu ban đầu)
-const PREP_PER_ITEM_MIN = 10;
+function estimate_prep_minutes(int $itemsCount): int {
+    if ($itemsCount <= 0) {
+        return PREP_BASE_MIN;
+    }
 
-// Giao hàng: theo khoảng cách (km)
+    $batches = (int) ceil($itemsCount / PREP_ITEMS_PER_BATCH);
+    $minutes = PREP_BASE_MIN + ($batches - 1) * PREP_PER_BATCH_MIN;
+
+    return min($minutes, PREP_MAX_MIN);
+}
+
 function estimate_delivery_minutes(float $distanceKm): int {
     if ($distanceKm <= 3)  return 10;
     if ($distanceKm <= 7)  return 15;
     if ($distanceKm <= 12) return 20;
-    return 25; // xa hơn thì 25p
+    return 25; 
 }
 
-// Hàm tính ETA từ tổng số phút
 function calculate_eta_from_minutes(int $totalMinutes): DateTime {
-    $now = new DateTime(); // đã dùng timezone Asia/Ho_Chi_Minh trong config.php
+    $now = new DateTime(); 
     $eta = clone $now;
     $eta->add(new DateInterval('PT' . $totalMinutes . 'M'));
     return $eta;
 }
 
-// Hàm tính phí giao hàng
 function calculate_shipping_fee(float $distanceKm): int {
-    $baseFee = 20000; // 20.000đ
+    $baseFee = 20000; 
     if ($distanceKm <= 5) {
         return $baseFee;
     }
     $extraDistance = max(0, $distanceKm - 5);
-    $extraBlocks   = ceil($extraDistance / 5); // mỗi block 5km
+    $extraBlocks   = ceil($extraDistance / 5); 
     $extraFee      = $extraBlocks * 5000;
     return $baseFee + $extraFee;
 }
 
-// ====== LẤY SẢN PHẨM TRONG GIỎ ======
 $productIds = array_keys($cart);
 $placeholders = implode(',', array_fill(0, count($productIds), '?'));
 
@@ -79,7 +84,6 @@ if (empty($products)) {
     exit;
 }
 
-// Tính subtotal + tổng số món
 $subtotal   = 0;
 $itemsCount = 0;
 
@@ -91,8 +95,7 @@ foreach ($cart as $pid => $qty) {
     $itemsCount += $qty;
 }
 
-// Thời gian chuẩn bị dự kiến (chỉ phụ thuộc số món, nên có thể show luôn)
-$prepEstimateMinutes = max(PREP_PER_ITEM_MIN * $itemsCount, PREP_PER_ITEM_MIN);
+$prepEstimateMinutes = estimate_prep_minutes($itemsCount);
 
 $errors = [];
 $orderCreated = false;
@@ -102,26 +105,24 @@ $shippingFee = 0;
 $total = 0;
 $address = '';
 $distanceKm = 0;
-$prepMinutes = 0;
-$deliveryMinutes = 0;
+$prepMinutes     = estimate_prep_minutes($itemsCount);
+$deliveryMinutes = estimate_delivery_minutes($distanceKm);
 
-// ====== SUBMIT ĐƠN HÀNG ======
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $address    = trim($_POST['address'] ?? '');
     $distanceKm = (float)($_POST['distance_km'] ?? 0);
 
-    if ($address === '') {
+    // Validation
+    if (empty($address)) {
         $errors[] = "Vui lòng nhập địa chỉ giao hàng.";
     }
     if ($distanceKm <= 0) {
-        $errors[] = "Khoảng cách chưa được tính. Vui lòng bấm nút 'Tính khoảng cách & phí giao hàng (OSM)'.";
+        $errors[] = "Không tính được khoảng cách. Vui lòng nhập địa chỉ rõ hơn.";
     }
 
     if (empty($errors)) {
         $shippingFee = calculate_shipping_fee($distanceKm);
-
-        // Tính thời gian chuẩn bị & giao thực tế cho đơn này
-        $prepMinutes     = max(PREP_PER_ITEM_MIN * $itemsCount, PREP_PER_ITEM_MIN);
+        $prepMinutes     = estimate_prep_minutes($itemsCount);
         $deliveryMinutes = estimate_delivery_minutes($distanceKm);
         $totalMinutes    = $prepMinutes + $deliveryMinutes;
 
@@ -131,7 +132,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total = $subtotal + $shippingFee;
 
         // Insert vào bảng orders 
-        // (có prep_minutes, delivery_minutes, status, estimated_delivery_time)
         $sqlOrder = "INSERT INTO orders 
                         (user_id, total, shipping_fee, shipping_address, distance_km, 
                          prep_minutes, delivery_minutes, status, estimated_delivery_time) 
@@ -141,14 +141,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_bind_param(
             $stmt,
             "idisdiis",
-            $_SESSION['user_id'], // i
-            $total,               // d
-            $shippingFee,         // i
-            $address,             // s
-            $distanceKm,          // d
-            $prepMinutes,         // i
-            $deliveryMinutes,     // i
-            $etaString            // s
+            $_SESSION['user_id'], 
+            $total,               
+            $shippingFee,         
+            $address,             
+            $distanceKm,          
+            $prepMinutes,         
+            $deliveryMinutes,     
+            $etaString            
         );
 
         if (mysqli_stmt_execute($stmt)) {
@@ -169,7 +169,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             mysqli_stmt_close($stmtItem);
 
-            // Xoá giỏ hàng
             unset($_SESSION['cart']);
         } else {
             $errors[] = "Không thể tạo đơn hàng. Vui lòng thử lại.";
@@ -300,7 +299,7 @@ include 'header.php';
                         Cửa hàng: <strong>72 Tô Ký, Quận 12, TP.HCM</strong><br>
                         Thời gian chuẩn bị dự kiến: 
                         <strong><?php echo $prepEstimateMinutes; ?> phút</strong>
-                        (khoảng 10 phút / món).<br>
+                        <br>
                         Thời gian giao hàng sẽ được ước lượng theo khoảng cách của bạn.
                     </p>
 
@@ -309,24 +308,20 @@ include 'header.php';
                             <label class="form-label">Địa chỉ giao hàng của bạn</label>
                             <input type="text" name="address" id="addressInput"
                                    class="form-control"
+                                   placeholder="Ví dụ: 123 Nguyễn Văn Linh, Quận 7"
                                    value="<?php echo htmlspecialchars($address); ?>" required>
+                            <small class="form-text text-muted">
+                                Nhập địa chỉ chi tiết (số nhà, tên đường, quận/huyện)
+                            </small>
                         </div>
 
-                        <!-- distance_km: input ẩn, JS sẽ tự fill -->
                         <input type="hidden" name="distance_km" id="distance_km" 
                                value="<?php echo htmlspecialchars($distanceKm ?: ''); ?>">
-
-                        <div class="mb-2">
-                            <button type="button" class="btn btn-outline-secondary w-100"
-                                    id="btnCalcDistance">
-                                Tính khoảng cách &amp; phí giao hàng (OSM)
-                            </button>
-                        </div>
 
                         <div class="mb-3">
                             <small id="shippingPreview" class="text-muted">
                                 Phí giao hàng: 20.000đ trong 5km đầu, 
-                                sau đó mỗi 5km + 5.000đ. Khoảng cách sẽ được tự tính bằng OpenStreetMap.
+                                sau đó mỗi 5km + 5.000đ.
                             </small>
                         </div>
 
@@ -341,157 +336,206 @@ include 'header.php';
 
 <?php endif; ?>
 
-<!-- JS OSM như bạn đang dùng, không đổi phần logic chính -->
 <script>
 const storeLat = <?php echo json_encode($SHOP_LAT); ?>;
 const storeLon = <?php echo json_encode($SHOP_LON); ?>;
 
-// Geocoding địa chỉ -> lat/lon bằng Nominatim (cố gắng 2 lần, nhưng đều là dữ liệu thật)
-// Geocoding địa chỉ -> lat/lon bằng Nominatim
-async function geocodeAddressOSM(rawAddress) {
-    const tries = [];
+console.log('cửa hàng:', { lat: storeLat, lon: storeLon });
 
-    const addr = rawAddress.trim();
+const geocodeCache = new Map();
+let abortController = null; 
 
-    // 1. Nguyên câu người dùng nhập
-    if (addr) {
-        tries.push(addr);
-    }
-
-    // 2. Thay "Thành phố Hồ Chí Minh" / "TP HCM" bằng "Ho Chi Minh City, Vietnam"
-    let normalized = addr
-        .replace(/thành phố hồ chí minh/ig, '')
-        .replace(/tp\.?\s*hcm/ig, '')
-        .replace(/tp\.?\s*hồ chí minh/ig, '')
-        .trim();
-
-    if (normalized) {
-        tries.push(normalized + ', Ho Chi Minh City, Vietnam');
-    }
-
-    // 3. Chỉ lấy phần "số nhà + tên đường" rồi thêm city cố định
-    const firstComma = addr.indexOf(',');
-    if (firstComma !== -1) {
-        const short = addr.slice(0, firstComma).trim();
-        if (short) {
-            tries.push(short + ', Ho Chi Minh City, Vietnam');
-        }
-    }
-
-    // 4. Thêm ", Vietnam" nếu thiếu
-    tries.push(addr + ', Vietnam');
-
-    // Loại bỏ trùng lặp
-    const uniqueTries = [...new Set(tries)];
-
-    console.log('OSM geocode tries:', uniqueTries);
-
-    for (const q of uniqueTries) {
-        const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q="
-            + encodeURIComponent(q);
-
-        console.log('Geocoding with:', url);
-
-        const res = await fetch(url, { headers: { "Accept": "application/json" } });
-        if (!res.ok) {
-            console.warn('Geocoding HTTP error', res.status, 'for query', q);
-            continue;
-        }
-
-        const data = await res.json();
-        if (data && data.length) {
-            console.log('Geocode success for', q, '=>', data[0]);
-            return {
-                lat: parseFloat(data[0].lat),
-                lon: parseFloat(data[0].lon)
-            };
-        }
-    }
-
-    throw new Error("Không tìm thấy địa chỉ phù hợp trên OSM");
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function geocodeAddressOSM(rawAddress, signal) {
+    const addr = (rawAddress || "").trim();
+    if (!addr) throw new Error("Địa chỉ trống");
 
-// Tính khoảng cách đường đi bằng OSRM (dữ liệu thật)
+    const cacheKey = addr.toLowerCase();
+    if (geocodeCache.has(cacheKey)) {
+        console.log('Lấy từ cache:', geocodeCache.get(cacheKey));
+        return geocodeCache.get(cacheKey);
+    }
+    const tries = [
+        addr + ", Ho Chi Minh City, Vietnam",
+        addr + ", Hồ Chí Minh, Vietnam",
+        addr + ", Sài Gòn, Vietnam",
+        addr + ", Vietnam"
+    ];
+
+    const unique = [...new Set(tries)];
+
+    for (let i = 0; i < unique.length; i++) {
+        if (signal && signal.aborted) {
+            throw new Error('Request đã bị hủy');
+        }
+
+        const q = unique[i];
+        console.log(`Thử geocode (${i + 1}/${unique.length}):`, q);
+        
+        try {
+            const url = "https://nominatim.openstreetmap.org/search?format=json&limit=3&q="
+                + encodeURIComponent(q);
+
+            const res = await fetch(url, {
+                signal: signal,
+                headers: {
+                    "Accept-Language": "vi,en;q=0.8",
+                    "User-Agent": "FoodBondCheckout/1.0"
+                }
+            });
+
+            if (!res.ok) {
+                console.warn(`HTTP ${res.status} cho query: ${q}`);
+                await delay(1500);
+                continue;
+            }
+
+            const data = await res.json();
+            console.log(`Kết quả cho "${q}":`, data);
+            
+            if (Array.isArray(data) && data.length > 0) {
+                let bestMatch = data[0];
+                for (const item of data) {
+                    if (item.display_name.includes('Hồ Chí Minh') || 
+                        item.display_name.includes('Ho Chi Minh') ||
+                        item.display_name.includes('Sài Gòn')) {
+                        bestMatch = item;
+                        break;
+                    }
+                }
+                const result = {
+                    lat: parseFloat(bestMatch.lat),
+                    lon: parseFloat(bestMatch.lon),
+                    display_name: bestMatch.display_name
+                };
+                
+                console.log('Tìm thấy tọa độ:', result);
+                
+                geocodeCache.set(cacheKey, result);
+                
+                return result;
+            }
+
+            await delay(1500);
+
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.log('Request bị hủy');
+                throw err;
+            }
+            console.error(`Lỗi khi geocode "${q}":`, err);
+            await delay(1500);
+        }
+    }
+
+    throw new Error("Không tìm thấy địa chỉ phù hợp. Vui lòng nhập địa chỉ chi tiết hơn (số nhà, tên đường, quận).");
+}
+
 async function calcRouteDistanceOSM(fromLat, fromLon, toLat, toLon) {
     const url = "https://router.project-osrm.org/route/v1/driving/"
-        + fromLon + "," + fromLat + ";" + toLon + "," + toLat
-        + "?overview=false";
+        + fromLon + "," + fromLat + ";"  
+        + toLon + "," + toLat            
+        + "?overview=false&steps=false";
+
+    console.log('Đang tính khoảng cách:', url);
 
     const res = await fetch(url);
     if (!res.ok) throw new Error("OSRM HTTP " + res.status);
+
     const data = await res.json();
+    console.log('OSRM response:', data);
+
     if (!data.routes || !data.routes.length) {
-        throw new Error("Không tìm được lộ trình lái xe trên OSM");
+        throw new Error("Không tìm được đường lái xe");
     }
-    const meters = data.routes[0].distance; // mét
-    return meters / 1000.0; // km
+
+    const distanceKm = data.routes[0].distance / 1000;
+    const durationMin = data.routes[0].duration / 60;
+    
+    console.log('Kết quả:', {
+        distance: distanceKm.toFixed(2) + ' km',
+        duration: durationMin.toFixed(1) + ' phút'
+    });
+
+    return distanceKm;
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    const btn = document.getElementById('btnCalcDistance');
     const addrInput = document.getElementById('addressInput');
     const distanceInput = document.getElementById('distance_km');
     const preview = document.getElementById('shippingPreview');
 
-    if (!btn) return;
+    if (!addrInput) return;
 
-    btn.addEventListener('click', async function () {
+    async function autoCalcShipping() {
         const addr = addrInput.value.trim();
         if (!addr) {
-            alert("Vui lòng nhập địa chỉ giao hàng trước.");
-            addrInput.focus();
-            return;
-        }
-        if (!storeLat || !storeLon) {
-            alert("Chưa cấu hình toạ độ cửa hàng (storeLat/storeLon).");
+            preview.innerHTML = '<span class="text-muted">Hãy nhập địa chỉ để hệ thống tự tính phí giao hàng.</span>';
+            distanceInput.value = "";
             return;
         }
 
-        btn.disabled = true;
-        btn.textContent = "Đang tính khoảng cách...";
-        preview.textContent = "Đang tính khoảng cách bằng OpenStreetMap...";
-
+        preview.innerHTML = '<span class="text-info">...</span>';
+        
         try {
-            // 1) Geocode địa chỉ khách trên OSM
             const dest = await geocodeAddressOSM(addr);
-
-            // 2) Tính khoảng cách đường đi bằng OSRM
-            const km = await calcRouteDistanceOSM(
-                storeLat, storeLon,
-                dest.lat, dest.lon
-            );
-
+            const km = await calcRouteDistanceOSM(storeLat, storeLon, dest.lat, dest.lon);
             const kmRounded = Math.round(km * 10) / 10;
-            distanceInput.value = kmRounded;
 
-            // 3) Tính phí ship giống PHP (chỉ để hiển thị cho khách)
+            distanceInput.value = kmRounded;
             let fee = 20000;
             if (kmRounded > 5) {
-                const extraBlocks = Math.ceil((kmRounded - 5) / 5);
-                fee += extraBlocks * 5000;
+                fee += Math.ceil((kmRounded - 5) / 5) * 5000;
             }
 
-            preview.textContent =
-                "Khoảng cách ước tính từ OSM: khoảng " + kmRounded.toFixed(1) + " km, "
-                + "phí giao hàng tạm tính: " + fee.toLocaleString('vi-VN') + " đ.";
+            let deliveryTime = 10;
+            if (kmRounded > 3 && kmRounded <= 7) deliveryTime = 15;
+            else if (kmRounded > 7 && kmRounded <= 12) deliveryTime = 20;
+            else if (kmRounded > 12) deliveryTime = 25;
 
-            btn.textContent = "Đã tính xong, có thể đặt hàng";
+            preview.innerHTML = `
+                Khoảng cách: <strong>${kmRounded.toFixed(1)} km</strong><br>
+                hời gian giao: <strong>~${deliveryTime} phút</strong><br>
+                Phí giao hàng: <strong>${fee.toLocaleString('vi-VN')} đ</strong>
+            `;
+
         } catch (err) {
-            console.error(err);
-            alert("Không tính được khoảng cách từ OpenStreetMap: " + err.message
-                  + "\nVui lòng kiểm tra lại địa chỉ (ghi rõ quận, thành phố).");
-
-            preview.textContent = "Không tính được khoảng cách, vui lòng nhập lại địa chỉ cho chính xác.";
+            console.error('Lỗi tính khoảng cách:', err);
+            preview.innerHTML = `
+                <span class="text-danger">
+                    ${err.message}<br>
+                    Vui lòng nhập địa chỉ rõ hơn (số nhà, tên đường, quận).
+                </span>
+            `;
             distanceInput.value = "";
+        }
+    }
 
-            btn.textContent = "Tính khoảng cách & phí giao hàng (OSM)";
-        } finally {
-            btn.disabled = false;
+    let timer;
+    const DELAY = 3000;
+
+    addrInput.addEventListener("input", function () {
+        clearTimeout(timer);
+        preview.innerHTML = '<span class="text-muted">Đang chờ bạn nhập xong...</span>';
+        timer = setTimeout(autoCalcShipping, DELAY);
+    });
+
+    // Tính lại khi blur (rời ô)
+    addrInput.addEventListener("blur", autoCalcShipping);
+
+    // Validate khi submit
+    document.getElementById('checkoutForm').addEventListener('submit', function(e) {
+        const distance = parseFloat(distanceInput.value);
+        if (!distance || distance <= 0) {
+            e.preventDefault();
+            alert('Vui lòng đợi hệ thống tính khoảng cách hoặc nhập địa chỉ rõ hơn.');
+            addrInput.focus();
         }
     });
 });
 </script>
-
 
 <?php include 'footer.php'; ?>

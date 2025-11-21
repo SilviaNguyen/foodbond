@@ -4,30 +4,44 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require 'config.php';
 
-// Khởi tạo giỏ nếu chưa có
 if (!isset($_SESSION['cart']) || !is_array($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
 }
 
-$cart = &$_SESSION['cart']; // tham chiếu cho tiện
+$cart = &$_SESSION['cart']; 
 
-// Xử lý các action: add, remove, update, clear
 $action = $_GET['action'] ?? '';
 
-// Thêm vào giỏ: cart.php?action=add&id=...
+$isAjax = isset($_GET['ajax']) && $_GET['ajax'] == '1';
+
 if ($action === 'add' && isset($_GET['id'])) {
     $id = (int)$_GET['id'];
     if ($id > 0) {
         if (!isset($cart[$id])) {
             $cart[$id] = 0;
         }
-        $cart[$id]++; // mỗi lần click +1
+        $cart[$id]++; 
     }
-    header("Location: cart.php");
+
+    if ($isAjax) {
+        $cartCount = 0;
+        foreach ($cart as $qty) {
+            $cartCount += (int)$qty;
+        }
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'success'   => true,
+            'cartCount' => $cartCount,
+        ]);
+    } else {
+        $redirect = $_SERVER['HTTP_REFERER'] ?? 'index.php';
+        header("Location: " . $redirect);
+    }
     exit;
 }
 
-// Xóa 1 món: cart.php?action=remove&id=...
+
 if ($action === 'remove' && isset($_GET['id'])) {
     $id = (int)$_GET['id'];
     if (isset($cart[$id])) {
@@ -37,14 +51,12 @@ if ($action === 'remove' && isset($_GET['id'])) {
     exit;
 }
 
-// Xóa toàn bộ giỏ: cart.php?action=clear
 if ($action === 'clear') {
     $cart = [];
     header("Location: cart.php");
     exit;
 }
 
-// Cập nhật số lượng (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_cart'])) {
     $qtys = $_POST['qty'] ?? [];
     foreach ($qtys as $pid => $qty) {
@@ -60,8 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_cart'])) {
     exit;
 }
 
-// Sau khi xử lý action, chuẩn bị data để hiển thị
-$cart = $_SESSION['cart']; // reload
+$cart = $_SESSION['cart']; 
 $products = [];
 $subtotal = 0;
 $totalItems = 0;
