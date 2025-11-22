@@ -4,13 +4,11 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require 'config.php';
 
-// CHỈ CHO ADMIN
 if (empty($_SESSION['user_id']) || ($_SESSION['role'] ?? 'user') !== 'admin') {
     header("Location: index.php");
     exit;
 }
 
-// Hàm auto cập nhật trạng thái theo thời gian
 function update_and_get_order_status(array $row, mysqli $conn): array
 {
     if (empty($row['created_at'])) {
@@ -20,14 +18,11 @@ function update_and_get_order_status(array $row, mysqli $conn): array
     $orderCreatedAt = new DateTime($row['created_at']);
     $now            = new DateTime();
 
-    // thời gian chuẩn bị và giao hàng (phút)
     $prep = (int)($row['prep_minutes'] ?? 20);
     $ship = (int)($row['delivery_minutes'] ?? 20);
 
-    // tổng phút đã trôi qua từ khi tạo đơn
     $elapsedMinutes = ($now->getTimestamp() - $orderCreatedAt->getTimestamp()) / 60;
 
-    // Nếu đã quá thời gian chuẩn bị + giao hàng mà vẫn là 'delivering' thì auto chuyển sang 'delivered'
     if ($row['status'] === 'delivering' && $elapsedMinutes >= ($prep + $ship)) {
         $newStatus = 'delivered';
         $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
@@ -37,7 +32,6 @@ function update_and_get_order_status(array $row, mysqli $conn): array
         mysqli_stmt_close($stmtU);
         $row['status'] = $newStatus;
     }
-    // Nếu đã quá thời gian chuẩn bị mà vẫn là 'preparing' thì auto chuyển sang 'delivering'
     elseif ($row['status'] === 'preparing' && $elapsedMinutes >= $prep && $elapsedMinutes < ($prep + $ship)) {
         $newStatus = 'delivering';
         $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
@@ -51,13 +45,10 @@ function update_and_get_order_status(array $row, mysqli $conn): array
     return $row;
 }
 
-
-// QUẢN LÝ SẢN PHẨM: THÊM / XÓA
 $message = '';
 $messageType = 'success';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Thêm sản phẩm mới
     if (isset($_POST['add_product'])) {
         $name        = trim($_POST['product_name'] ?? '');
         $category_id = (int)($_POST['category_id'] ?? 0);
@@ -89,7 +80,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Xóa sản phẩm
     if (isset($_POST['delete_product_id'])) {
         $productId = (int)$_POST['delete_product_id'];
         if ($productId > 0) {
@@ -114,7 +104,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Lấy danh mục và danh sách sản phẩm
 $categories = [];
 $sqlCategories = "SELECT category_id, category_name FROM categories ORDER BY category_name";
 $rsCategories = mysqli_query($conn, $sqlCategories);
@@ -133,7 +122,6 @@ if ($rsProducts) {
     }
 }
 
-// TÓM TẮT ĐƠN HÀNG & DOANH THU
 $sqlSummary = "
     SELECT 
         COUNT(*) AS total_orders,
@@ -154,7 +142,6 @@ $deliveredOrders  = (int)($summary['delivered_orders'] ?? 0);
 $cancelledOrders  = (int)($summary['cancelled_orders'] ?? 0);
 $revenue          = (float)($summary['revenue'] ?? 0);
 
-// Lấy danh sách đơn chưa hoàn thành (preparing + delivering)
 $sqlInProgress = "
     SELECT o.*, u.fullname, u.phone
     FROM orders o
@@ -168,7 +155,6 @@ while ($row = mysqli_fetch_assoc($rsInProgressRaw)) {
     $inProgress[] = update_and_get_order_status($row, $conn);
 }
 
-// Lấy danh sách đơn đã giao gần đây
 $sqlDelivered = "
     SELECT o.*, u.fullname, u.phone
     FROM orders o
@@ -389,7 +375,6 @@ include 'header.php';
     </div>
 </div>
 
-<!-- ĐƠN ĐÃ GIAO GẦN ĐÂY -->
 <div class="card mb-4">
     <div class="card-header bg-success text-white">
         Các đơn đã giao gần đây
