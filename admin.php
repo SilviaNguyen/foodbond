@@ -227,7 +227,7 @@ include 'header.php';
                         <input type="number" class="form-control" id="price" name="price" min="0" step="1000" required>
                     </div>
                     <div class="mb-3">
-                        <label for="image" class="form-label">Tên file ảnh (trong thư mục images/)</label>
+                        <label for="image" class="form-label">Tên file ảnh (images/)</label>
                         <input type="text" class="form-control" id="image" name="image" placeholder="vd: ga_ran.jpg" required>
                     </div>
                     <button type="submit" name="add_product" class="btn btn-primary">Thêm sản phẩm</button>
