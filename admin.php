@@ -4,135 +4,42 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require 'config.php';
 
+// CHỈ CHO ADMIN
 if (empty($_SESSION['user_id']) || ($_SESSION['role'] ?? 'user') !== 'admin') {
     header("Location: index.php");
     exit;
 }
 
-$adminMessage = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $action = $_POST['action'] ?? '';
-
-    if ($action === 'add_product') {
-        $category_id = (int)($_POST['category_id'] ?? 0);
-        $product_name = trim($_POST['product_name'] ?? '');
-        $description  = trim($_POST['description'] ?? '');
-        $price        = (float)($_POST['price'] ?? 0);
-        $image        = trim($_POST['image'] ?? '');
-
-        if ($category_id <= 0 || $product_name === '' || $price <= 0) {
-            $adminMessage = 'Vui lòng nhập đầy đủ tên sản phẩm, danh mục và giá.';
-        } else {
-            $sql = "INSERT INTO products (category_id, product_name, description, price, image)
-                    VALUES (?, ?, ?, ?, ?)";
-            $stmt = mysqli_prepare($conn, $sql);
-            mysqli_stmt_bind_param($stmt, "issds",
-                $category_id,
-                $product_name,
-                $description,
-                $price,
-                $image
-            );
-            if (mysqli_stmt_execute($stmt)) {
-                $adminMessage = 'Thêm sản phẩm mới thành công.';
-            } else {
-                $adminMessage = 'Lỗi thêm sản phẩm: ' . mysqli_error($conn);
-            }
-            mysqli_stmt_close($stmt);
-        }
-    }
-
-    elseif ($action === 'update_status') {
-        $order_id   = (int)($_POST['order_id'] ?? 0);
-        $new_status = $_POST['status'] ?? '';
-
-        $allowed = ['preparing', 'delivering', 'delivered', 'cancelled'];
-        if ($order_id > 0 && in_array($new_status, $allowed, true)) {
-            $sql = "UPDATE orders SET status = ? WHERE order_id = ?";
-            $stmt = mysqli_prepare($conn, $sql);
-            mysqli_stmt_bind_param($stmt, "si", $new_status, $order_id);
-            if (mysqli_stmt_execute($stmt)) {
-                $adminMessage = 'Cập nhật trạng thái đơn hàng thành công.';
-            } else {
-                $adminMessage = 'Lỗi cập nhật trạng thái: ' . mysqli_error($conn);
-            }
-            mysqli_stmt_close($stmt);
-        }
-    }
-
-    elseif ($action === 'cancel_order') {
-        $order_id = (int)($_POST['order_id'] ?? 0);
-        if ($order_id > 0) {
-            $sql = "UPDATE orders SET status = 'cancelled' WHERE order_id = ?";
-            $stmt = mysqli_prepare($conn, $sql);
-            mysqli_stmt_bind_param($stmt, "i", $order_id);
-            if (mysqli_stmt_execute($stmt)) {
-                $adminMessage = 'Đơn hàng đã được hủy.';
-            } else {
-                $adminMessage = 'Lỗi hủy đơn: ' . mysqli_error($conn);
-            }
-            mysqli_stmt_close($stmt);
-        }
-    }
-
-    elseif ($action === 'delete_order') {
-        $order_id = (int)($_POST['order_id'] ?? 0);
-        if ($order_id > 0) {
-            mysqli_begin_transaction($conn);
-            try {
-                $sqlItems = "DELETE FROM order_items WHERE order_id = ?";
-                $stmt1 = mysqli_prepare($conn, $sqlItems);
-                mysqli_stmt_bind_param($stmt1, "i", $order_id);
-                mysqli_stmt_execute($stmt1);
-                mysqli_stmt_close($stmt1);
-
-                $sqlOrder = "DELETE FROM orders WHERE order_id = ?";
-                $stmt2 = mysqli_prepare($conn, $sqlOrder);
-                mysqli_stmt_bind_param($stmt2, "i", $order_id);
-                mysqli_stmt_execute($stmt2);
-                mysqli_stmt_close($stmt2);
-
-                mysqli_commit($conn);
-                $adminMessage = 'Đã xóa đơn hàng khỏi hệ thống.';
-            } catch (Exception $e) {
-                mysqli_rollback($conn);
-                $adminMessage = 'Lỗi xóa đơn: ' . $e->getMessage();
-            }
-        }
-    }
-}
-
+// Hàm auto cập nhật trạng thái theo thời gian
 function update_and_get_order_status(array $row, mysqli $conn): array
 {
     if (empty($row['created_at'])) {
         return $row;
     }
 
-    if ($row['status'] === 'delivered' || $row['status'] === 'cancelled') {
-        return $row;
-    }
+    $orderCreatedAt = new DateTime($row['created_at']);
+    $now            = new DateTime();
 
-    $created = new DateTime($row['created_at']);
-    $now     = new DateTime();
+    // thời gian chuẩn bị và giao hàng (phút)
+    $prep = (int)($row['prep_minutes'] ?? 20);
+    $ship = (int)($row['delivery_minutes'] ?? 20);
 
-    $prep    = isset($row['prep_minutes']) ? (int)$row['prep_minutes'] : 20;
-    $ship    = isset($row['delivery_minutes']) ? (int)$row['delivery_minutes'] : 20;
-    $elapsedMinutes = (int) floor(($now->getTimestamp() - $created->getTimestamp()) / 60);
+    // tổng phút đã trôi qua từ khi tạo đơn
+    $elapsedMinutes = ($now->getTimestamp() - $orderCreatedAt->getTimestamp()) / 60;
 
-    $newStatus = $row['status'];
-
-    if ($elapsedMinutes < 0) {
-        $newStatus = 'preparing';
-    } elseif ($elapsedMinutes < $prep) {
-        $newStatus = 'preparing';
-    } elseif ($elapsedMinutes < $prep + $ship) {
-        $newStatus = 'delivering';
-    } else {
+    // Nếu đã quá thời gian chuẩn bị + giao hàng mà vẫn là 'delivering' thì auto chuyển sang 'delivered'
+    if ($row['status'] === 'delivering' && $elapsedMinutes >= ($prep + $ship)) {
         $newStatus = 'delivered';
+        $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
+        $stmtU = mysqli_prepare($conn, $sqlU);
+        mysqli_stmt_bind_param($stmtU, "si", $newStatus, $row['order_id']);
+        mysqli_stmt_execute($stmtU);
+        mysqli_stmt_close($stmtU);
+        $row['status'] = $newStatus;
     }
-
-    if ($newStatus !== $row['status']) {
+    // Nếu đã quá thời gian chuẩn bị mà vẫn là 'preparing' thì auto chuyển sang 'delivering'
+    elseif ($row['status'] === 'preparing' && $elapsedMinutes >= $prep && $elapsedMinutes < ($prep + $ship)) {
+        $newStatus = 'delivering';
         $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
         $stmtU = mysqli_prepare($conn, $sqlU);
         mysqli_stmt_bind_param($stmtU, "si", $newStatus, $row['order_id']);
@@ -144,6 +51,89 @@ function update_and_get_order_status(array $row, mysqli $conn): array
     return $row;
 }
 
+
+// QUẢN LÝ SẢN PHẨM: THÊM / XÓA
+$message = '';
+$messageType = 'success';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Thêm sản phẩm mới
+    if (isset($_POST['add_product'])) {
+        $name        = trim($_POST['product_name'] ?? '');
+        $category_id = (int)($_POST['category_id'] ?? 0);
+        $description = trim($_POST['description'] ?? '');
+        $price       = (float)($_POST['price'] ?? 0);
+        $image       = trim($_POST['image'] ?? '');
+
+        if ($name === '' || $category_id <= 0 || $price <= 0 || $image === '') {
+            $message = 'Vui lòng nhập đầy đủ thông tin sản phẩm.';
+            $messageType = 'danger';
+        } else {
+            $sqlInsert = "INSERT INTO products (product_name, category_id, description, price, image) VALUES (?,?,?,?,?)";
+            $stmtIns   = mysqli_prepare($conn, $sqlInsert);
+            if ($stmtIns) {
+                mysqli_stmt_bind_param($stmtIns, "sisds", $name, $category_id, $description, $price, $image);
+                mysqli_stmt_execute($stmtIns);
+                if (mysqli_stmt_affected_rows($stmtIns) > 0) {
+                    $message = 'Thêm sản phẩm mới thành công.';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Không thể thêm sản phẩm. Vui lòng thử lại.';
+                    $messageType = 'danger';
+                }
+                mysqli_stmt_close($stmtIns);
+            } else {
+                $message = 'Lỗi hệ thống khi thêm sản phẩm.';
+                $messageType = 'danger';
+            }
+        }
+    }
+
+    // Xóa sản phẩm
+    if (isset($_POST['delete_product_id'])) {
+        $productId = (int)$_POST['delete_product_id'];
+        if ($productId > 0) {
+            $sqlDel = "DELETE FROM products WHERE product_id = ?";
+            $stmtDel = mysqli_prepare($conn, $sqlDel);
+            if ($stmtDel) {
+                mysqli_stmt_bind_param($stmtDel, "i", $productId);
+                mysqli_stmt_execute($stmtDel);
+                if (mysqli_stmt_affected_rows($stmtDel) > 0) {
+                    $message = 'Xóa sản phẩm thành công.';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Không thể xóa sản phẩm (có thể sản phẩm không tồn tại).';
+                    $messageType = 'danger';
+                }
+                mysqli_stmt_close($stmtDel);
+            } else {
+                $message = 'Lỗi hệ thống khi xóa sản phẩm.';
+                $messageType = 'danger';
+            }
+        }
+    }
+}
+
+// Lấy danh mục và danh sách sản phẩm
+$categories = [];
+$sqlCategories = "SELECT category_id, category_name FROM categories ORDER BY category_name";
+$rsCategories = mysqli_query($conn, $sqlCategories);
+if ($rsCategories) {
+    while ($row = mysqli_fetch_assoc($rsCategories)) {
+        $categories[] = $row;
+    }
+}
+
+$products = [];
+$sqlProducts = "SELECT p.*, c.category_name FROM products p LEFT JOIN categories c ON c.category_id = p.category_id ORDER BY p.product_id ASC";
+$rsProducts = mysqli_query($conn, $sqlProducts);
+if ($rsProducts) {
+    while ($row = mysqli_fetch_assoc($rsProducts)) {
+        $products[] = $row;
+    }
+}
+
+// TÓM TẮT ĐƠN HÀNG & DOANH THU
 $sqlSummary = "
     SELECT 
         COUNT(*) AS total_orders,
@@ -164,7 +154,7 @@ $deliveredOrders  = (int)($summary['delivered_orders'] ?? 0);
 $cancelledOrders  = (int)($summary['cancelled_orders'] ?? 0);
 $revenue          = (float)($summary['revenue'] ?? 0);
 
-
+// Lấy danh sách đơn chưa hoàn thành (preparing + delivering)
 $sqlInProgress = "
     SELECT o.*, u.fullname, u.phone
     FROM orders o
@@ -178,6 +168,7 @@ while ($row = mysqli_fetch_assoc($rsInProgressRaw)) {
     $inProgress[] = update_and_get_order_status($row, $conn);
 }
 
+// Lấy danh sách đơn đã giao gần đây
 $sqlDelivered = "
     SELECT o.*, u.fullname, u.phone
     FROM orders o
@@ -192,95 +183,111 @@ while ($row = mysqli_fetch_assoc($rsDeliveredRaw)) {
     $deliveredList[] = update_and_get_order_status($row, $conn);
 }
 
-$sqlAdminCats = "SELECT * FROM categories ORDER BY category_name";
-$rsAdminCats  = mysqli_query($conn, $sqlAdminCats);
-
-$sqlAdminProducts = "
-    SELECT p.*, c.category_name
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.category_id
-    ORDER BY p.product_id ASC
-";
-$rsAdminProducts = mysqli_query($conn, $sqlAdminProducts);
-
 include 'header.php';
 ?>
 
-<h2 class="h4 mb-3">Bảng điều khiển Admin - FoodBond</h2>
+<h2 class="h4 mb-3">Admin - FoodBond</h2>
 
-<?php if ($adminMessage !== ''): ?>
-    <div class="alert alert-info"><?php echo htmlspecialchars($adminMessage); ?></div>
+
+<?php if (!empty($message)): ?>
+    <div id="flash-message" class="alert alert-<?php echo ($messageType === 'danger') ? 'danger' : 'success'; ?> alert-dismissible fade show" role="alert">
+        <?php echo htmlspecialchars($message); ?>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    <script>
+        setTimeout(function () {
+            var el = document.getElementById('flash-message');
+            if (!el) return;
+            if (window.bootstrap && bootstrap.Alert) {
+                var alert = new bootstrap.Alert(el);
+                alert.close();
+            } else {
+                el.style.display = 'none';
+            }
+        }, 3000);
+    </script>
 <?php endif; ?>
 
-<div class="card mb-4">
-    <div class="card-header">
-        <strong>Quản lý sản phẩm</strong>
-    </div>
-    <div class="card-body">
-        <div class="row">
-            <div class="col-md-5">
-                <h6>Thêm sản phẩm mới</h6>
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                Quản lý sản phẩm
+            </div>
+            <div class="card-body">
+                <h6 class="mb-3">Thêm sản phẩm mới</h6>
                 <form method="post">
-                    <input type="hidden" name="action" value="add_product">
-
-                    <div class="mb-2">
-                        <label class="form-label">Tên sản phẩm</label>
-                        <input type="text" name="product_name" class="form-control" required>
+                    <div class="mb-3">
+                        <label for="product_name" class="form-label">Tên sản phẩm</label>
+                        <input type="text" class="form-control" id="product_name" name="product_name" required>
                     </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Danh mục</label>
-                        <select name="category_id" class="form-select" required>
+                    <div class="mb-3">
+                        <label for="category_id" class="form-label">Danh mục</label>
+                        <select class="form-select" id="category_id" name="category_id" required>
                             <option value="">-- Chọn danh mục --</option>
-                            <?php while ($cat = mysqli_fetch_assoc($rsAdminCats)): ?>
+                            <?php foreach ($categories as $cat): ?>
                                 <option value="<?php echo $cat['category_id']; ?>">
                                     <?php echo htmlspecialchars($cat['category_name']); ?>
                                 </option>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         </select>
                     </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Mô tả</label>
-                        <textarea name="description" class="form-control" rows="3"></textarea>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Mô tả</label>
+                        <textarea class="form-control" id="description" name="description" rows="3"></textarea>
                     </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Giá (VNĐ)</label>
-                        <input type="number" name="price" class="form-control" min="0" step="1000" required>
+                    <div class="mb-3">
+                        <label for="price" class="form-label">Giá (VNĐ)</label>
+                        <input type="number" class="form-control" id="price" name="price" min="0" step="1000" required>
                     </div>
-
-                    <div class="mb-2">
-                        <label class="form-label">Tên file ảnh (trong thư mục images/)</label>
-                        <input type="text" name="image" class="form-control" placeholder="vd: ga_ran.jpg">
+                    <div class="mb-3">
+                        <label for="image" class="form-label">Tên file ảnh (trong thư mục images/)</label>
+                        <input type="text" class="form-control" id="image" name="image" placeholder="vd: ga_ran.jpg" required>
                     </div>
-
-                    <button type="submit" class="btn btn-primary mt-2">Thêm sản phẩm</button>
+                    <button type="submit" name="add_product" class="btn btn-primary">Thêm sản phẩm</button>
                 </form>
             </div>
+        </div>
+    </div>
 
-            <!-- Bảng liệt kê sản phẩm -->
-            <div class="col-md-7">
-                <h6>Danh sách sản phẩm hiện có</h6>
-                <div class="table-responsive" style="max-height: 400px;">
-                    <table class="table table-sm table-striped align-middle mb-0">
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header">
+                Danh sách sản phẩm hiện có
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+                    <table class="table table-striped table-hover mb-0 align-middle">
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Tên</th>
                                 <th>Danh mục</th>
                                 <th>Giá</th>
+                                <th>Hành động</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php while ($p = mysqli_fetch_assoc($rsAdminProducts)): ?>
+                            <?php if (!empty($products)): ?>
+                                <?php foreach ($products as $p): ?>
+                                    <tr>
+                                        <td><?php echo $p['product_id']; ?></td>
+                                        <td><?php echo htmlspecialchars($p['product_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($p['category_name'] ?? ''); ?></td>
+                                        <td><?php echo number_format((float)$p['price'], 0, ',', '.'); ?> đ</td>
+                                        <td>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Bạn có chắc muốn xóa sản phẩm này?');">
+                                                <input type="hidden" name="delete_product_id" value="<?php echo $p['product_id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php else: ?>
                                 <tr>
-                                    <td><?php echo $p['product_id']; ?></td>
-                                    <td><?php echo htmlspecialchars($p['product_name']); ?></td>
-                                    <td><?php echo htmlspecialchars($p['category_name']); ?></td>
-                                    <td><?php echo number_format($p['price'], 0, ',', '.'); ?> đ</td>
+                                    <td colspan="5" class="text-center py-3">Chưa có sản phẩm nào.</td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -335,6 +342,7 @@ include 'header.php';
     </div>
 </div>
 
+<!-- ĐƠN ĐANG XỬ LÝ -->
 <div class="card mb-4">
     <div class="card-header bg-warning text-dark">
         Đơn đang xử lý (chuẩn bị / giao hàng)
@@ -350,65 +358,26 @@ include 'header.php';
                             <th>SĐT</th>
                             <th>Tổng tiền</th>
                             <th>Trạng thái</th>
-                            <th>Tạo lúc</th>
-                            <th>ETA</th>
-                            <th>Hành động</th>
+                            <th>Đặt lúc</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($inProgress as $row): ?>
+                        <?php foreach ($inProgress as $o): ?>
                             <tr>
-                                <td>#<?php echo $row['order_id']; ?></td>
-                                <td><?php echo htmlspecialchars($row['fullname'] ?? 'Khách lẻ'); ?></td>
-                                <td><?php echo htmlspecialchars($row['phone'] ?? ''); ?></td>
-                                <td><?php echo number_format($row['total'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo $o['order_id']; ?></td>
+                                <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
+                                <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
+                                <td><?php echo number_format($o['total'] + $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
                                 <td>
-                                    <?php
-                                    $st = $row['status'];
-                                    $label = 'Không rõ';
-                                    $cls   = 'badge bg-secondary';
-                                    if ($st === 'preparing') {
-                                        $label = 'Đang chuẩn bị';
-                                        $cls   = 'badge bg-warning text-dark';
-                                    } elseif ($st === 'delivering') {
-                                        $label = 'Đang giao hàng';
-                                        $cls   = 'badge bg-info text-dark';
-                                    }
-                                    ?>
-                                    <span class="<?php echo $cls; ?>"><?php echo $label; ?></span>
+                                    <?php if ($o['status'] === 'preparing'): ?>
+                                        <span class="badge bg-warning text-dark">Đang chuẩn bị</span>
+                                    <?php elseif ($o['status'] === 'delivering'): ?>
+                                        <span class="badge bg-info text-dark">Đang giao hàng</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-secondary">Khác</span>
+                                    <?php endif; ?>
                                 </td>
-                                <td><?php echo date('d/m/Y H:i', strtotime($row['created_at'])); ?></td>
-                                <td>
-                                    <?php if (!empty($row['estimated_delivery_time'])): 
-                                        $eta = new DateTime($row['estimated_delivery_time']);
-                                        echo $eta->format('H:i d/m');
-                                    endif; ?>
-                                </td>
-                                <td>
-                                    <form method="post" class="d-flex gap-1 mb-1">
-                                        <input type="hidden" name="action" value="update_status">
-                                        <input type="hidden" name="order_id" value="<?php echo $row['order_id']; ?>">
-                                        <select name="status" class="form-select form-select-sm">
-                                            <option value="preparing"  <?php if ($row['status'] === 'preparing')  echo 'selected'; ?>>Đang chuẩn bị</option>
-                                            <option value="delivering" <?php if ($row['status'] === 'delivering') echo 'selected'; ?>>Đang giao</option>
-                                            <option value="delivered"  <?php if ($row['status'] === 'delivered')  echo 'selected'; ?>>Đã giao</option>
-                                            <option value="cancelled"  <?php if ($row['status'] === 'cancelled')  echo 'selected'; ?>>Đã hủy</option>
-                                        </select>
-                                        <button type="submit" class="btn btn-sm btn-primary">Cập nhật</button>
-                                    </form>
-
-                                    <form method="post" class="d-inline" onsubmit="return confirm('Bạn có chắc muốn HỦY đơn này?');">
-                                        <input type="hidden" name="action" value="cancel_order">
-                                        <input type="hidden" name="order_id" value="<?php echo $row['order_id']; ?>">
-                                        <button type="submit" class="btn btn-sm btn-warning">Hủy</button>
-                                    </form>
-
-                                    <form method="post" class="d-inline" onsubmit="return confirm('XÓA hoàn toàn đơn này (cả chi tiết)?');">
-                                        <input type="hidden" name="action" value="delete_order">
-                                        <input type="hidden" name="order_id" value="<?php echo $row['order_id']; ?>">
-                                        <button type="submit" class="btn btn-sm btn-danger">Xóa</button>
-                                    </form>
-                                </td>
+                                <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -420,6 +389,7 @@ include 'header.php';
     </div>
 </div>
 
+<!-- ĐƠN ĐÃ GIAO GẦN ĐÂY -->
 <div class="card mb-4">
     <div class="card-header bg-success text-white">
         Các đơn đã giao gần đây
@@ -434,31 +404,24 @@ include 'header.php';
                             <th>Khách hàng</th>
                             <th>SĐT</th>
                             <th>Tổng tiền</th>
-                            <th>Trạng thái</th>
-                            <th>Thời gian giao (ETA)</th>
-                            <th>Hành động</th>
+                            <th>Đặt lúc</th>
+                            <th>Giao lúc</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($deliveredList as $row): ?>
+                        <?php foreach ($deliveredList as $o): ?>
                             <tr>
-                                <td>#<?php echo $row['order_id']; ?></td>
-                                <td><?php echo htmlspecialchars($row['fullname'] ?? 'Khách lẻ'); ?></td>
-                                <td><?php echo htmlspecialchars($row['phone'] ?? ''); ?></td>
-                                <td><?php echo number_format($row['total'], 0, ',', '.'); ?> đ</td>
-                                <td><span class="badge bg-success">Đã giao</span></td>
+                                <td><?php echo $o['order_id']; ?></td>
+                                <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
+                                <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
+                                <td><?php echo number_format($o['total'] + $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
                                 <td>
-                                    <?php if (!empty($row['estimated_delivery_time'])): 
-                                        $eta = new DateTime($row['estimated_delivery_time']);
-                                        echo $eta->format('H:i d/m/Y');
-                                    endif; ?>
-                                </td>
-                                <td>
-                                    <form method="post" class="d-inline" onsubmit="return confirm('Xóa đơn hàng này khỏi lịch sử?');">
-                                        <input type="hidden" name="action" value="delete_order">
-                                        <input type="hidden" name="order_id" value="<?php echo $row['order_id']; ?>">
-                                        <button type="submit" class="btn btn-sm btn-danger">Xóa</button>
-                                    </form>
+                                    <?php if (!empty($o['updated_at'])): ?>
+                                        <?php echo date('H:i d/m', strtotime($o['updated_at'])); ?>
+                                    <?php else: ?>
+                                        <span class="text-muted">N/A</span>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
