@@ -102,6 +102,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+    if (isset($_POST['update_order_status'])) {
+        $orderId   = (int)($_POST['order_id'] ?? 0);
+        $newStatus = $_POST['new_status'] ?? '';
+
+        // Chỉ cho phép các trạng thái này
+        $allowedStatuses = ['preparing', 'delivering', 'delivered', 'cancelled'];
+
+        if ($orderId > 0 && in_array($newStatus, $allowedStatuses, true)) {
+            $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
+            $stmtU = mysqli_prepare($conn, $sqlU);
+            if ($stmtU) {
+                mysqli_stmt_bind_param($stmtU, "si", $newStatus, $orderId);
+                mysqli_stmt_execute($stmtU);
+
+                if (mysqli_stmt_affected_rows($stmtU) > 0) {
+                    $message = 'Cập nhật trạng thái đơn hàng thành công.';
+                    $messageType = 'success';
+                } else {
+                    $message = 'Không thể cập nhật trạng thái (đơn không tồn tại hoặc trạng thái không đổi).';
+                    $messageType = 'danger';
+                }
+
+                mysqli_stmt_close($stmtU);
+            } else {
+                $message = 'Lỗi hệ thống khi cập nhật trạng thái đơn hàng.';
+                $messageType = 'danger';
+            }
+        } else {
+            $message = 'Dữ liệu cập nhật trạng thái không hợp lệ.';
+            $messageType = 'danger';
+        }
+    }
 }
 
 $categories = [];
@@ -345,6 +377,7 @@ include 'header.php';
                             <th>Tổng tiền</th>
                             <th>Trạng thái</th>
                             <th>Đặt lúc</th>
+                            <th>Hành động</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -354,16 +387,58 @@ include 'header.php';
                                 <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
                                 <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
                                 <td><?php echo number_format($o['total'] + $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
-                                <td>
-                                    <?php if ($o['status'] === 'preparing'): ?>
-                                        <span class="badge bg-warning text-dark">Đang chuẩn bị</span>
-                                    <?php elseif ($o['status'] === 'delivering'): ?>
-                                        <span class="badge bg-info text-dark">Đang giao hàng</span>
-                                    <?php else: ?>
-                                        <span class="badge bg-secondary">Khác</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
+                            <td>
+                                <?php if ($o['status'] === 'preparing'): ?>
+                                    <span class="badge bg-warning text-dark">Đang chuẩn bị</span>
+                                <?php elseif ($o['status'] === 'delivering'): ?>
+                                    <span class="badge bg-info text-dark">Đang giao hàng</span>
+                                <?php elseif ($o['status'] === 'delivered'): ?>
+                                    <span class="badge bg-success">Đã giao</span>
+                                <?php elseif ($o['status'] === 'cancelled'): ?>
+                                    <span class="badge bg-danger">Đã hủy</span>
+                                <?php else: ?>
+                                    <span class="badge bg-secondary">Khác</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
+
+                            <td>
+                                <!-- Từ chuẩn bị -> giao hàng -->
+                                <form method="post" class="d-inline">
+                                    <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
+                                    <input type="hidden" name="new_status" value="delivering">
+                                    <button type="submit"
+                                            name="update_order_status"
+                                            class="btn btn-sm btn-outline-info"
+                                            <?php echo $o['status'] !== 'preparing' ? 'disabled' : ''; ?>>
+                                        Cho giao hàng
+                                    </button>
+                                </form>
+
+                                <!-- Đánh dấu đã giao -->
+                                <form method="post" class="d-inline">
+                                    <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
+                                    <input type="hidden" name="new_status" value="delivered">
+                                    <button type="submit"
+                                            name="update_order_status"
+                                            class="btn btn-sm btn-outline-success"
+                                            <?php echo $o['status'] === 'delivered' ? 'disabled' : ''; ?>>
+                                        Đã giao
+                                    </button>
+                                </form>
+
+                                <!-- Hủy đơn -->
+                                <form method="post" class="d-inline">
+                                    <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
+                                    <input type="hidden" name="new_status" value="cancelled">
+                                    <button type="submit"
+                                            name="update_order_status"
+                                            class="btn btn-sm btn-outline-danger"
+                                            <?php echo $o['status'] === 'cancelled' ? 'disabled' : ''; ?>>
+                                        Hủy
+                                    </button>
+                                </form>
+                            </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>

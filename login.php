@@ -22,11 +22,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         mysqli_stmt_close($stmt);
 
         if ($user && password_verify($password, $user['password'])) {
-            // Lưu session đăng nhập
             $_SESSION['user_id']  = $user['user_id'];
             $_SESSION['fullname'] = $user['fullname'];
-            $_SESSION['role']     = $user['role']; // QUAN TRỌNG
-
+            $_SESSION['role']     = $user['role']; 
+            $_SESSION['address']   = $user['address'];
             header("Location: index.php");
             exit;
         } else {

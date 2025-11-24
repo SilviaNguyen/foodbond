@@ -7,10 +7,16 @@ require 'config.php';
 $SHOP_LON = 106.61635256938862;    
 $SHOP_LAT = 10.865558890717343;  
 
-// Nếu chưa đăng nhập -> về login
+
 if (empty($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
+}
+
+$defaultAddress = '';
+
+if (isset($_SESSION['address'])) {
+    $defaultAddress = $_SESSION['address'];
 }
 
 $cart = $_SESSION['cart'] ?? [];
@@ -112,7 +118,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $address    = trim($_POST['address'] ?? '');
     $distanceKm = (float)($_POST['distance_km'] ?? 0);
 
-    // Validation
     if (empty($address)) {
         $errors[] = "Vui lòng nhập địa chỉ giao hàng.";
     }
@@ -131,7 +136,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $total = $subtotal + $shippingFee;
 
-        // Insert vào bảng orders 
         $sqlOrder = "INSERT INTO orders 
                         (user_id, total, shipping_fee, shipping_address, distance_km, 
                          prep_minutes, delivery_minutes, status, estimated_delivery_time) 
@@ -155,7 +159,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $orderId = mysqli_insert_id($conn);
             $orderCreated = true;
 
-            // Insert từng món
             $sqlItem = "INSERT INTO order_items (order_id, product_id, quantity, price)
                         VALUES (?, ?, ?, ?)";
             $stmtItem = mysqli_prepare($conn, $sqlItem);
@@ -288,7 +291,6 @@ include 'header.php';
             </div>
         </div>
 
-        <!-- Thông tin giao hàng -->
         <div class="col-md-5 mb-3">
             <div class="card">
                 <div class="card-header">
@@ -296,16 +298,14 @@ include 'header.php';
                 </div>
                 <div class="card-body">
                     <p class="small text-muted mb-2">
-                        Cửa hàng: <strong>72 Tô Ký, Quận 12, TP.HCM</strong><br>
                         Thời gian chuẩn bị dự kiến: 
                         <strong><?php echo $prepEstimateMinutes; ?> phút</strong>
                         <br>
-                        Thời gian giao hàng sẽ được ước lượng theo khoảng cách của bạn.
                     </p>
 
                     <form method="post" id="checkoutForm">
                         <div class="mb-3">
-                            <label class="form-label">Địa chỉ giao hàng của bạn</label>
+                            <label class="form-label">Địa chỉ giao hàng của bạn:</label>
                             <input type="text" name="address" id="addressInput"
                                    class="form-control"
                                    placeholder="Ví dụ: 123 Nguyễn Văn Linh, Quận 7"
@@ -523,10 +523,8 @@ document.addEventListener("DOMContentLoaded", function () {
         timer = setTimeout(autoCalcShipping, DELAY);
     });
 
-    // Tính lại khi blur (rời ô)
     addrInput.addEventListener("blur", autoCalcShipping);
 
-    // Validate khi submit
     document.getElementById('checkoutForm').addEventListener('submit', function(e) {
         const distance = parseFloat(distanceInput.value);
         if (!distance || distance <= 0) {

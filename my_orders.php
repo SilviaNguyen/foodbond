@@ -4,7 +4,6 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require 'config.php';
 
-// Bắt buộc đăng nhập
 if (empty($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
@@ -16,39 +15,45 @@ function update_and_get_order_status(array $row, mysqli $conn): array
         return $row;
     }
 
-    // Nếu đã giao / đã huỷ thì giữ nguyên
     if ($row['status'] === 'delivered' || $row['status'] === 'cancelled') {
         return $row;
     }
 
-    $created = new DateTime($row['created_at']);
-    $now     = new DateTime();
+    $orderCreatedAt = new DateTime($row['created_at']);
+    $now            = new DateTime();
 
-    $prep    = isset($row['prep_minutes']) ? (int)$row['prep_minutes'] : 20;
-    $ship    = isset($row['delivery_minutes']) ? (int)$row['delivery_minutes'] : 20;
-    $elapsedMinutes = (int) floor(($now->getTimestamp() - $created->getTimestamp()) / 60);
+    $prep = (int)($row['prep_minutes'] ?? 20);
+    $ship = (int)($row['delivery_minutes'] ?? 20);
+
+    $elapsedMinutes = ($now->getTimestamp() - $orderCreatedAt->getTimestamp()) / 60;
 
     $newStatus = $row['status'];
 
-    if ($elapsedMinutes < 0) {
-        $newStatus = 'preparing';
-    } elseif ($elapsedMinutes < $prep) {
-        $newStatus = 'preparing';
-    } elseif ($elapsedMinutes < $prep + $ship) {
+    if ($row['status'] === 'preparing' && $elapsedMinutes >= $prep && $elapsedMinutes < ($prep + $ship)) {
         $newStatus = 'delivering';
-    } else {
+    }
+    elseif ($row['status'] === 'delivering' && $elapsedMinutes >= ($prep + $ship)) {
         $newStatus = 'delivered';
+    } else {
+        return $row;
     }
 
-    // CHỈ đổi trong biến $row để hiển thị, KHÔNG UPDATE DB
-    $row['status'] = $newStatus;
+    $sqlU  = "UPDATE orders SET status = ? WHERE order_id = ?";
+    $stmtU = mysqli_prepare($conn, $sqlU);
+    if ($stmtU) {
+        mysqli_stmt_bind_param($stmtU, "si", $newStatus, $row['order_id']);
+        mysqli_stmt_execute($stmtU);
+        mysqli_stmt_close($stmtU);
+
+        $row['status'] = $newStatus;
+    }
+
     return $row;
 }
 
 
 $userId = (int)$_SESSION['user_id'];
 
-// Lấy danh sách đơn của user
 $sqlOrders = "
     SELECT order_id, total, shipping_fee, shipping_address, distance_km, status, 
            prep_minutes, delivery_minutes, estimated_delivery_time, created_at
@@ -65,6 +70,8 @@ $orders = [];
 $orderIds = [];
 
 while ($row = mysqli_fetch_assoc($rsOrders)) {
+    $row = update_and_get_order_status($row, $conn);
+
     $orders[$row['order_id']] = $row;
     $orderIds[] = $row['order_id'];
 }
@@ -115,7 +122,6 @@ include 'header.php';
     <?php foreach ($orders as $oid => $o): ?>
 
         <?php
-        // Chuyển status thành tiếng Việt + màu badge
         $status = $o['status'];
         $badgeClass = 'bg-secondary';
         $label = $status;
@@ -151,7 +157,6 @@ include 'header.php';
             </div>
             <div class="card-body">
                 <div class="row">
-                    <!-- Thông tin chung -->
                     <div class="col-md-5 mb-3">
                         <p class="mb-1">
                             <strong>Địa chỉ giao:</strong><br>
@@ -187,7 +192,6 @@ include 'header.php';
                         <?php endif; ?>
                     </div>
 
-                    <!-- Danh sách món -->
                     <div class="col-md-7 mb-3">
                         <div class="table-responsive">
                             <table class="table table-sm align-middle mb-0">
