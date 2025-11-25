@@ -3,7 +3,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require 'config.php';
-
+require 'layorder.php';
 $SHOP_LON = 106.61635256938862;    
 $SHOP_LAT = 10.865558890717343;  
 
@@ -23,47 +23,6 @@ $cart = $_SESSION['cart'] ?? [];
 if (empty($cart) || !is_array($cart)) {
     header("Location: index.php");
     exit;
-}
-
-const PREP_BASE_MIN        = 15; 
-const PREP_ITEMS_PER_BATCH = 5;  
-const PREP_PER_BATCH_MIN   = 5;  
-const PREP_MAX_MIN         = 45; 
-
-function estimate_prep_minutes(int $itemsCount): int {
-    if ($itemsCount <= 0) {
-        return PREP_BASE_MIN;
-    }
-
-    $batches = (int) ceil($itemsCount / PREP_ITEMS_PER_BATCH);
-    $minutes = PREP_BASE_MIN + ($batches - 1) * PREP_PER_BATCH_MIN;
-
-    return min($minutes, PREP_MAX_MIN);
-}
-
-function estimate_delivery_minutes(float $distanceKm): int {
-    if ($distanceKm <= 3)  return 10;
-    if ($distanceKm <= 7)  return 15;
-    if ($distanceKm <= 12) return 20;
-    return 25; 
-}
-
-function calculate_eta_from_minutes(int $totalMinutes): DateTime {
-    $now = new DateTime(); 
-    $eta = clone $now;
-    $eta->add(new DateInterval('PT' . $totalMinutes . 'M'));
-    return $eta;
-}
-
-function calculate_shipping_fee(float $distanceKm): int {
-    $baseFee = 20000; 
-    if ($distanceKm <= 5) {
-        return $baseFee;
-    }
-    $extraDistance = max(0, $distanceKm - 5);
-    $extraBlocks   = ceil($extraDistance / 5); 
-    $extraFee      = $extraBlocks * 5000;
-    return $baseFee + $extraFee;
 }
 
 $productIds = array_keys($cart);

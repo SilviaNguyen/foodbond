@@ -3,52 +3,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require 'config.php';
+require 'layorder.php';
 
 if (empty($_SESSION['user_id'])) {
     header("Location: login.php");
     exit;
-}
-
-function update_and_get_order_status(array $row, mysqli $conn): array
-{
-    if (empty($row['created_at'])) {
-        return $row;
-    }
-
-    if ($row['status'] === 'delivered' || $row['status'] === 'cancelled') {
-        return $row;
-    }
-
-    $orderCreatedAt = new DateTime($row['created_at']);
-    $now            = new DateTime();
-
-    $prep = (int)($row['prep_minutes'] ?? 20);
-    $ship = (int)($row['delivery_minutes'] ?? 20);
-
-    $elapsedMinutes = ($now->getTimestamp() - $orderCreatedAt->getTimestamp()) / 60;
-
-    $newStatus = $row['status'];
-
-    if ($row['status'] === 'preparing' && $elapsedMinutes >= $prep && $elapsedMinutes < ($prep + $ship)) {
-        $newStatus = 'delivering';
-    }
-    elseif ($row['status'] === 'delivering' && $elapsedMinutes >= ($prep + $ship)) {
-        $newStatus = 'delivered';
-    } else {
-        return $row;
-    }
-
-    $sqlU  = "UPDATE orders SET status = ? WHERE order_id = ?";
-    $stmtU = mysqli_prepare($conn, $sqlU);
-    if ($stmtU) {
-        mysqli_stmt_bind_param($stmtU, "si", $newStatus, $row['order_id']);
-        mysqli_stmt_execute($stmtU);
-        mysqli_stmt_close($stmtU);
-
-        $row['status'] = $newStatus;
-    }
-
-    return $row;
 }
 
 
