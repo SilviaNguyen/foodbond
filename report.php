@@ -97,7 +97,7 @@ include 'header.php';
             <table class="table table-hover mb-0 align-middle">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th>ID Món</th>
                         <th>Tên Sản phẩm</th>
                         <th>Số lượng Bán</th>
                         <th>Số Đơn</th>
@@ -112,8 +112,10 @@ include 'header.php';
                                 <td><?php echo htmlspecialchars($ps['product_name']); ?></td>
                                 <td><?php echo number_format($ps['total_quantity'], 0, ',', '.'); ?></td>
                                 <td><?php echo number_format($ps['order_count'], 0, ',', '.'); ?></td>
-                                <td class="fw-bold text-success">
-                                    <?php echo number_format($ps['total_revenue'], 0, ',', '.'); ?> đ
+                                <td>
+                                    <strong>
+                                        <?php echo number_format($ps['total_revenue'], 0, ',', '.'); ?> đ
+                                    </strong>                                
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -141,8 +143,9 @@ include 'header.php';
                         <th>Khách hàng</th>
                         <th>SĐT</th>
                         <th>Địa chỉ</th>
-                        <th>Tổng tiền</th>
+                        <th>Tiền món</th>
                         <th>Phí ship</th>
+                        <th>Tổng tiền</th>
                         <th>Khoảng cách</th>
                         <th>Trạng thái</th>
                         <th>Ngày đặt</th>
@@ -156,8 +159,9 @@ include 'header.php';
                                 <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
                                 <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
                                 <td><?php echo htmlspecialchars($o['shipping_address']); ?></td>
-                                <td><?php echo number_format($o['total'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo number_format($o['total'] - $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
                                 <td><?php echo number_format($o['shipping_fee'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo number_format($o['total'], 0, ',', '.'); ?> đ</td>
                                 <td><?php echo number_format($o['distance_km'], 2, ',', '.'); ?> km</td>
                                 <td>
                                     <?php if ($o['status'] === 'preparing'): ?>
@@ -330,7 +334,7 @@ function showOrderDetail(orderId) {
                         <tfoot>
                             <tr>
                                 <td colspan="3" class="text-end"><strong>Tổng tiền món:</strong></td>
-                                <td class="text-end"><strong>${parseInt(data.order.total).toLocaleString('vi-VN')} đ</strong></td>
+                                <td class="text-end"><strong>${(parseInt(data.order.total) - parseInt(data.order.shipping_fee)).toLocaleString('vi-VN')} đ</strong></td>
                             </tr>
                             <tr>
                                 <td colspan="3" class="text-end"><strong>Phí ship:</strong></td>

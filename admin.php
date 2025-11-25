@@ -411,7 +411,7 @@ include 'header.php';
                                 <td><?php echo $o['order_id']; ?></td>
                                 <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
                                 <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
-                                <td><?php echo number_format($o['total'] + $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo number_format($o['total'], 0, ',', '.'); ?> đ</td>
                             <td>
                                 <?php if ($o['status'] === 'preparing'): ?>
                                     <span class="badge bg-warning text-dark">Đang chuẩn bị</span>
@@ -428,7 +428,6 @@ include 'header.php';
                             <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
 
                             <td>
-                                <!-- Từ chuẩn bị -> giao hàng -->
                                 <form method="post" class="d-inline">
                                     <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
                                     <input type="hidden" name="new_status" value="delivering">
@@ -440,7 +439,6 @@ include 'header.php';
                                     </button>
                                 </form>
 
-                                <!-- Đánh dấu đã giao -->
                                 <form method="post" class="d-inline">
                                     <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
                                     <input type="hidden" name="new_status" value="delivered">
@@ -452,7 +450,6 @@ include 'header.php';
                                     </button>
                                 </form>
 
-                                <!-- Hủy đơn -->
                                 <form method="post" class="d-inline">
                                     <input type="hidden" name="order_id" value="<?php echo $o['order_id']; ?>">
                                     <input type="hidden" name="new_status" value="cancelled">
@@ -499,7 +496,7 @@ include 'header.php';
                                 <td><?php echo $o['order_id']; ?></td>
                                 <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
                                 <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
-                                <td><?php echo number_format($o['total'] + $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
+                                <td><?php echo number_format($o['total'], 0, ',', '.'); ?> đ</td>
                                 <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
                                 <td>
                                     <?php if (!empty($o['updated_at'])): ?>
