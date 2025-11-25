@@ -48,6 +48,13 @@ function update_and_get_order_status(array $row, mysqli $conn): array
 $message = '';
 $messageType = 'success';
 
+if (isset($_SESSION['message'])) {
+    $message = $_SESSION['message'];
+    $messageType = $_SESSION['messageType'] ?? 'success';
+    unset($_SESSION['message']);
+    unset($_SESSION['messageType']);
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add_product'])) {
         $name        = trim($_POST['product_name'] ?? '');
@@ -57,8 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $image       = trim($_POST['image'] ?? '');
 
         if ($name === '' || $category_id <= 0 || $price <= 0 || $image === '') {
-            $message = 'Vui lòng nhập đầy đủ thông tin sản phẩm.';
-            $messageType = 'danger';
+            $_SESSION['message'] = 'Vui lòng nhập đầy đủ thông tin sản phẩm.';
+            $_SESSION['messageType'] = 'danger';
         } else {
             $sqlInsert = "INSERT INTO products (product_name, category_id, description, price, image) VALUES (?,?,?,?,?)";
             $stmtIns   = mysqli_prepare($conn, $sqlInsert);
@@ -66,47 +73,139 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 mysqli_stmt_bind_param($stmtIns, "sisds", $name, $category_id, $description, $price, $image);
                 mysqli_stmt_execute($stmtIns);
                 if (mysqli_stmt_affected_rows($stmtIns) > 0) {
-                    $message = 'Thêm sản phẩm mới thành công.';
-                    $messageType = 'success';
+                    $_SESSION['message'] = 'Thêm sản phẩm mới thành công.';
+                    $_SESSION['messageType'] = 'success';
                 } else {
-                    $message = 'Không thể thêm sản phẩm. Vui lòng thử lại.';
-                    $messageType = 'danger';
+                    $_SESSION['message'] = 'Không thể thêm sản phẩm. Vui lòng thử lại.';
+                    $_SESSION['messageType'] = 'danger';
                 }
                 mysqli_stmt_close($stmtIns);
             } else {
-                $message = 'Lỗi hệ thống khi thêm sản phẩm.';
-                $messageType = 'danger';
+                $_SESSION['message'] = 'Lỗi hệ thống khi thêm sản phẩm.';
+                $_SESSION['messageType'] = 'danger';
             }
         }
+        header("Location: admin.php");
+        exit;
     }
 
-    if (isset($_POST['delete_product_id'])) {
-        $productId = (int)$_POST['delete_product_id'];
-        if ($productId > 0) {
-            $sqlDel = "DELETE FROM products WHERE product_id = ?";
-            $stmtDel = mysqli_prepare($conn, $sqlDel);
-            if ($stmtDel) {
-                mysqli_stmt_bind_param($stmtDel, "i", $productId);
-                mysqli_stmt_execute($stmtDel);
-                if (mysqli_stmt_affected_rows($stmtDel) > 0) {
-                    $message = 'Xóa sản phẩm thành công.';
-                    $messageType = 'success';
-                } else {
-                    $message = 'Không thể xóa sản phẩm (có thể sản phẩm không tồn tại).';
-                    $messageType = 'danger';
-                }
-                mysqli_stmt_close($stmtDel);
-            } else {
-                $message = 'Lỗi hệ thống khi xóa sản phẩm.';
-                $messageType = 'danger';
-            }
-        }
-    }
     if (isset($_POST['update_order_status'])) {
         $orderId   = (int)($_POST['order_id'] ?? 0);
         $newStatus = $_POST['new_status'] ?? '';
 
-        // Chỉ cho phép các trạng thái này
+        $allowedStatuses = ['preparing', 'delivering', 'delivered', 'cancelled'];
+
+        if ($orderId > 0 && in_array($newStatus, $allowedStatuses, true)) {
+            $sqlU = "UPDATE orders SET status = ? WHERE order_id = ?";
+            $stmtU = mysqli_prepare($conn, $sqlU);
+            if ($stmtU) {
+                mysqli_stmt_bind_param($stmtU, "si", $newStatus, $orderId);
+                mysqli_stmt_execute($stmtU);
+
+                if (mysqli_stmt_affected_rows($stmtU) > 0) {
+                    $_SESSION['message'] = 'Cập nhật trạng thái đơn hàng thành công.';
+                    $_SESSION['messageType'] = 'success';
+                } else {
+                    $_SESSION['message'] = 'Không thể cập nhật trạng thái (đơn không tồn tại hoặc trạng thái không đổi).';
+                    $_SESSION['messageType'] = 'danger';
+                }
+
+                mysqli_stmt_close($stmtU);
+            } else {
+                $_SESSION['message'] = 'Lỗi hệ thống khi cập nhật trạng thái đơn hàng.';
+                $_SESSION['messageType'] = 'danger';
+            }
+        } else {
+            $_SESSION['message'] = 'Dữ liệu cập nhật trạng thái không hợp lệ.';
+            $_SESSION['messageType'] = 'danger';
+        }
+        header("Location: admin.php");
+        exit;
+    }
+}
+if (isset($_POST['delete_product_id'])) {
+        $productId = (int)$_POST['delete_product_id'];
+        if ($productId > 0) {
+            $sqlCheckOrders = "SELECT COUNT(*) as count FROM order_items WHERE product_id = ?";
+            $stmtCheck = mysqli_prepare($conn, $sqlCheckOrders);
+            mysqli_stmt_bind_param($stmtCheck, "i", $productId);
+            mysqli_stmt_execute($stmtCheck);
+            $rsCheck = mysqli_stmt_get_result($stmtCheck);
+            $checkResult = mysqli_fetch_assoc($rsCheck);
+            mysqli_stmt_close($stmtCheck);
+            
+            if ($checkResult['count'] > 0) {
+                $sqlUpdate = "UPDATE products SET product_name = CONCAT(product_name, ' (Đã xóa)'), category_id = NULL WHERE product_id = ? AND product_name NOT LIKE '%(Đã xóa)%'";
+                $stmtUpdate = mysqli_prepare($conn, $sqlUpdate);
+                if ($stmtUpdate) {
+                    mysqli_stmt_bind_param($stmtUpdate, "i", $productId);
+                    mysqli_stmt_execute($stmtUpdate);
+                    if (mysqli_stmt_affected_rows($stmtUpdate) > 0) {
+                        $_SESSION['message'] = 'Đánh dấu sản phẩm đã xóa thành công (vẫn giữ lịch sử đơn hàng).';
+                        $_SESSION['messageType'] = 'warning';
+                    } else {
+                        $_SESSION['message'] = 'Sản phẩm đã được đánh dấu xóa trước đó.';
+                        $_SESSION['messageType'] = 'info';
+                    }
+                    mysqli_stmt_close($stmtUpdate);
+                } else {
+                    $_SESSION['message'] = 'Lỗi hệ thống khi cập nhật sản phẩm.';
+                    $_SESSION['messageType'] = 'danger';
+                }
+            } else {
+                $sqlDel = "DELETE FROM products WHERE product_id = ?";
+                $stmtDel = mysqli_prepare($conn, $sqlDel);
+                if ($stmtDel) {
+                    mysqli_stmt_bind_param($stmtDel, "i", $productId);
+                    mysqli_stmt_execute($stmtDel);
+                    if (mysqli_stmt_affected_rows($stmtDel) > 0) {
+                        $_SESSION['message'] = 'Xóa sản phẩm thành công.';
+                        $_SESSION['messageType'] = 'success';
+                    } else {
+                        $_SESSION['message'] = 'Không thể xóa sản phẩm (có thể sản phẩm không tồn tại).';
+                        $_SESSION['messageType'] = 'danger';
+                    }
+                    mysqli_stmt_close($stmtDel);
+                } else {
+                    $_SESSION['message'] = 'Lỗi hệ thống khi xóa sản phẩm.';
+                    $_SESSION['messageType'] = 'danger';
+                }
+            }
+        }
+        header("Location: admin.php");
+        exit;
+    }
+    
+    if (isset($_POST['restore_product_id'])) {
+        $productId = (int)$_POST['restore_product_id'];
+        $categoryId = (int)$_POST['restore_category_id'];
+        
+        if ($productId > 0 && $categoryId > 0) {
+            $sqlRestore = "UPDATE products SET product_name = REPLACE(product_name, ' (Đã xóa)', ''), category_id = ? WHERE product_id = ?";
+            $stmtRestore = mysqli_prepare($conn, $sqlRestore);
+            if ($stmtRestore) {
+                mysqli_stmt_bind_param($stmtRestore, "ii", $categoryId, $productId);
+                mysqli_stmt_execute($stmtRestore);
+                if (mysqli_stmt_affected_rows($stmtRestore) > 0) {
+                    $_SESSION['message'] = 'Khôi phục sản phẩm thành công.';
+                    $_SESSION['messageType'] = 'success';
+                } else {
+                    $_SESSION['message'] = 'Không thể khôi phục sản phẩm.';
+                    $_SESSION['messageType'] = 'danger';
+                }
+                mysqli_stmt_close($stmtRestore);
+            } else {
+                $_SESSION['message'] = 'Lỗi hệ thống khi khôi phục sản phẩm.';
+                $_SESSION['messageType'] = 'danger';
+            }
+        }
+        header("Location: admin.php");
+        exit;
+    }
+if (isset($_POST['update_order_status'])) {
+        $orderId   = (int)($_POST['order_id'] ?? 0);
+        $newStatus = $_POST['new_status'] ?? '';
+
         $allowedStatuses = ['preparing', 'delivering', 'delivered', 'cancelled'];
 
         if ($orderId > 0 && in_array($newStatus, $allowedStatuses, true)) {
@@ -134,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $messageType = 'danger';
         }
     }
-}
+
 
 $categories = [];
 $sqlCategories = "SELECT category_id, category_name FROM categories ORDER BY category_name";
@@ -225,7 +324,11 @@ include 'header.php';
         }, 3000);
     </script>
 <?php endif; ?>
-
+<h2 class="h4 mb-3">
+    <a href="report.php" class="btn btn-outline-success btn-sm float-end">
+        <i class="bi bi-graph-up"></i> Xem Báo cáo
+    </a>
+</h2>
 <div class="row g-3 mb-4">
     <div class="col-md-4">
         <div class="card">
@@ -294,10 +397,27 @@ include 'header.php';
                                         <td><?php echo htmlspecialchars($p['category_name'] ?? ''); ?></td>
                                         <td><?php echo number_format((float)$p['price'], 0, ',', '.'); ?> đ</td>
                                         <td>
-                                            <form method="post" class="d-inline" onsubmit="return confirm('Bạn có chắc muốn xóa sản phẩm này?');">
-                                                <input type="hidden" name="delete_product_id" value="<?php echo $p['product_id']; ?>">
-                                                <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
-                                            </form>
+                                            <?php if (strpos($p['product_name'], '(Đã xóa)') !== false): ?>
+                                                <form method="post" class="d-inline">
+                                                    <input type="hidden" name="restore_product_id" value="<?php echo $p['product_id']; ?>">
+                                                    <select name="restore_category_id" class="form-select form-select-sm d-inline-block" style="width: auto;" required>
+                                                        <option value="">Chọn danh mục</option>
+                                                        <?php foreach ($categories as $cat): ?>
+                                                            <option value="<?php echo $cat['category_id']; ?>">
+                                                                <?php echo htmlspecialchars($cat['category_name']); ?>
+                                                            </option>
+                                                        <?php endforeach; ?>
+                                                    </select>
+                                                    <button type="submit" class="btn btn-sm btn-outline-success">
+                                                        <i class="bi bi-arrow-counterclockwise"></i> Khôi phục
+                                                    </button>
+                                                </form>
+                                            <?php else: ?>
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Bạn có chắc muốn xóa sản phẩm này?');">
+                                                    <input type="hidden" name="delete_product_id" value="<?php echo $p['product_id']; ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Xóa</button>
+                                                </form>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
