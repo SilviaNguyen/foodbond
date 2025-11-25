@@ -4,7 +4,7 @@
 
 <footer class="py-3 bg-dark mt-4">
     <div class="container text-center text-white-50">
-        <small>© <?php echo date("Y"); ?> FoodBond. All rights reserved.</small>
+        <small>© <?php echo date("Y"); ?> FoodBond. Đại Học Giao Thông Vận Tải</small>
     </div>
 </footer>
 
