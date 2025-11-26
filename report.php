@@ -342,7 +342,7 @@ function showOrderDetail(orderId) {
                             </tr>
                             <tr class="table-success">
                                 <td colspan="3" class="text-end"><strong>Tổng cộng:</strong></td>
-                                <td class="text-end"><strong>${(parseInt(data.order.total) + parseInt(data.order.shipping_fee)).toLocaleString('vi-VN')} đ</strong></td>
+                                <td class="text-end"><strong>${(parseInt(data.order.total)).toLocaleString('vi-VN')} đ</strong></td>
                             </tr>
                         </tfoot>
                     </table>
