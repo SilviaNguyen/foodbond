@@ -58,4 +58,3 @@ echo json_encode([
     'order' => $order,
     'items' => $items
 ]);
-?>

@@ -3,12 +3,14 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 require 'config.php';
-require 'layorder.php';
+include 'layorder.php';
 
 if (empty($_SESSION['user_id']) || ($_SESSION['role'] ?? 'user') !== 'admin') {
     header("Location: index.php");
     exit;
 }
+
+$currentTime = date('Y-m-d H:i:s');
 
 $message = '';
 $messageType = 'success';
@@ -385,7 +387,6 @@ include 'header.php';
     </div>
 </div>
 
-<!-- ĐƠN ĐANG XỬ LÝ -->
 <div class="card mb-4">
     <div class="card-header bg-warning text-dark">
         Đơn đang xử lý (chuẩn bị / giao hàng)
@@ -499,10 +500,10 @@ include 'header.php';
                                 <td><?php echo number_format($o['total'], 0, ',', '.'); ?> đ</td>
                                 <td><?php echo date('H:i d/m', strtotime($o['created_at'])); ?></td>
                                 <td>
-                                    <?php if (!empty($o['updated_at'])): ?>
-                                        <?php echo date('H:i d/m', strtotime($o['updated_at'])); ?>
+                                    <?php if (strtotime($currentTime) >= strtotime($o['estimated_delivery_time'])): ?>
+                                        <?php echo date('H:i d/m', strtotime($o['estimated_delivery_time'])); ?>
                                     <?php else: ?>
-                                        <span class="text-muted">N/A</span>
+                                        <span class="text-muted">N/A</span> 
                                     <?php endif; ?>
                                 </td>
                             </tr>

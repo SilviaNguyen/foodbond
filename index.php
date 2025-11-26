@@ -1,35 +1,31 @@
 <?php
 include 'header.php';
 
-// Lấy danh mục
+
 $sqlCategories = "SELECT * FROM categories ORDER BY category_name";
 $rsCategories = mysqli_query($conn, $sqlCategories);
 
-// Lấy sản phẩm theo filter
 $catFilter = isset($_GET['cat']) ? (int)$_GET['cat'] : 0;
 
-if ($catFilter > 0) {
-    $sqlProducts = "
+$sqlProducts = ($catFilter > 0) ? "
         SELECT p.*, c.category_name
         FROM products p
         JOIN categories c ON p.category_id = c.category_id
         WHERE p.category_id = $catFilter
         ORDER BY p.created_at DESC
-    ";
-} else {
-    $sqlProducts = "
+    "
+    : 
+    "
         SELECT p.*, c.category_name
         FROM products p
         JOIN categories c ON p.category_id = c.category_id
         ORDER BY p.created_at DESC
     ";
-}
 $rsProducts = mysqli_query($conn, $sqlProducts);
 ?>
 
 <h2 class="h4 mb-3">Menu FoodBond</h2>
 
-<!-- DANH MỤC -->
 <div class="d-flex flex-wrap mb-3">
 
     <a href="index.php"
@@ -46,7 +42,6 @@ $rsProducts = mysqli_query($conn, $sqlProducts);
 
 </div>
 
-<!-- DANH SÁCH SẢN PHẨM -->
 <div class="row g-3">
     <?php if (mysqli_num_rows($rsProducts) > 0): ?>
         <?php while ($p = mysqli_fetch_assoc($rsProducts)) : ?>

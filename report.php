@@ -156,8 +156,8 @@ include 'header.php';
                         <?php foreach ($orders as $o): ?>
                             <tr style="cursor: pointer;" onclick="showOrderDetail(<?php echo $o['order_id']; ?>)">
                                 <td><?php echo $o['order_id']; ?></td>
-                                <td><?php echo htmlspecialchars($o['fullname'] ?? 'Khách lẻ'); ?></td>
-                                <td><?php echo htmlspecialchars($o['phone'] ?? ''); ?></td>
+                                <td><?php echo htmlspecialchars($o['fullname']); ?></td>
+                                <td><?php echo htmlspecialchars($o['phone']); ?></td>
                                 <td><?php echo htmlspecialchars($o['shipping_address']); ?></td>
                                 <td><?php echo number_format($o['total'] - $o['shipping_fee'], 0, ',', '.'); ?> đ</td>
                                 <td><?php echo number_format($o['shipping_fee'], 0, ',', '.'); ?> đ</td>
